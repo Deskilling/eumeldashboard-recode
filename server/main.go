@@ -1,33 +1,39 @@
 package main
 
 import (
+	"net/http"
 	"server/api"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 func setupRouter() *gin.Engine {
 	router := gin.Default()
+	router.Use(gin.Recovery())
 
+	// kinda goofy
 	router.GET("/status", api.OnlineStatus)
-
 	router.GET("/api/players/online", api.GetOnlinePlayers)
-	router.POST("/api/players/online", api.PostOnlinePlayers)
-
 	router.GET("/api/players/deaths", api.GetAllDeaths)
-	router.POST("/api/players/deaths", api.PostAllDeaths)
-
 	router.GET("/api/chat", api.GetChatMessages)
-	router.POST("/api/chat", api.PostChatMessages)
-
 	router.GET("/api/leaderboard", api.GetLeaderBoard)
-	router.POST("/api/leaderboard", api.PostLeaderBoard)
-
 	router.GET("/api/globalstats", api.GetGlobalStats)
-	router.POST("/api/globalstats", api.PostGlobalStats)
+
+	authGroup := router.Group("/api")
+	authGroup.Use(authMiddleware)
+
+	authGroup.POST("/players/online", api.PostOnlinePlayers)
+	authGroup.POST("/players/deaths", api.PostAllDeaths)
+	authGroup.POST("/chat", api.PostChatMessages)
+	authGroup.POST("/leaderboard", api.PostLeaderBoard)
+	authGroup.POST("/globalstats", api.PostGlobalStats)
 
 	return router
 }
+
+// Auth is the authorization token used for the API, for now
+const Auth = "$)(=?/V&%?/)(=$%<70ß)J(M$%ß)M=MV&%/?=;)($?)(W&%/ß98<%/BMß>U)(M%&98pujm5zwt8jE=%W)M=uztrdoihdoihg"
 
 func main() {
 
@@ -36,4 +42,25 @@ func main() {
 	_ = router.SetTrustedProxies([]string{"localhost"})
 
 	_ = router.Run(":8080")
+}
+
+func authMiddleware(c *gin.Context) {
+	auth := c.GetHeader("Authorization")
+	if auth == "" {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "No authorization header"})
+		return
+	}
+
+	parts := strings.Split(auth, " ")
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format"})
+		return
+	}
+
+	if parts[1] != Auth {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		return
+	}
+
+	c.Next()
 }
