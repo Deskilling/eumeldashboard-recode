@@ -8,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Hoffentlich hat der Aal gute Performance
+
 type leaderBoardEntry struct {
 	UUID     string `json:"uuid"`
 	Name     string `json:"name"`
@@ -17,32 +19,45 @@ type leaderBoardEntry struct {
 }
 
 var (
-	leaderboardRWLock sync.RWMutex
-	entriesMap        = make(map[string]leaderBoardEntry)
-	sortedKills       []leaderBoardEntry
-	sortedDeaths      []leaderBoardEntry
-	sortedPlaytime    []leaderBoardEntry
+	leaderboardRWLock = sync.RWMutex{}
+	entries           = map[string]leaderBoardEntry{}
+	sortedByKills     []leaderBoardEntry
+	sortedByDeaths    []leaderBoardEntry
+	sortedByPlaytime  []leaderBoardEntry
 )
 
-func rebuildSortedSlices() {
-	sortedKills = make([]leaderBoardEntry, 0, len(entriesMap))
-	sortedDeaths = make([]leaderBoardEntry, 0, len(entriesMap))
-	sortedPlaytime = make([]leaderBoardEntry, 0, len(entriesMap))
+func remove(leaderboard []leaderBoardEntry, uuid string) []leaderBoardEntry {
+	for i, entry := range leaderboard {
+		if entry.UUID == uuid {
+			return append(leaderboard[:i], leaderboard[i+1:]...)
+		}
+	}
+	return leaderboard
+}
 
-	for _, entry := range entriesMap {
-		sortedKills = append(sortedKills, entry)
-		sortedDeaths = append(sortedDeaths, entry)
-		sortedPlaytime = append(sortedPlaytime, entry)
+// -- sort.Search -- Kuss für die gute Documentation
+func insert(sortedSlice []leaderBoardEntry, newEntry leaderBoardEntry, compare func(currenEntry leaderBoardEntry, oldEntry leaderBoardEntry) bool) []leaderBoardEntry {
+	i := sort.Search(len(sortedSlice), func(currentIndex int) bool { return !compare(sortedSlice[currentIndex], newEntry) })
+	return append(sortedSlice[:i], append([]leaderBoardEntry{newEntry}, sortedSlice[i:]...)...)
+}
+
+func updateSorted(newEntry leaderBoardEntry, oldEntry *leaderBoardEntry) {
+	if oldEntry != nil {
+		uuid := oldEntry.UUID
+		sortedByKills = remove(sortedByKills, uuid)
+		sortedByDeaths = remove(sortedByDeaths, uuid)
+		sortedByPlaytime = remove(sortedByPlaytime, uuid)
 	}
 
-	sort.Slice(sortedKills, func(i, j int) bool {
-		return sortedKills[i].Kills > sortedKills[j].Kills
+	// -- Daumen
+	sortedByKills = insert(sortedByKills, newEntry, func(newEntry leaderBoardEntry, oldEntry leaderBoardEntry) bool {
+		return newEntry.Kills > oldEntry.Kills
 	})
-	sort.Slice(sortedDeaths, func(i, j int) bool {
-		return sortedDeaths[i].Deaths > sortedDeaths[j].Deaths
+	sortedByDeaths = insert(sortedByDeaths, newEntry, func(newEntry leaderBoardEntry, oldEntry leaderBoardEntry) bool {
+		return newEntry.Deaths > oldEntry.Deaths
 	})
-	sort.Slice(sortedPlaytime, func(i, j int) bool {
-		return sortedPlaytime[i].Playtime > sortedPlaytime[j].Playtime
+	sortedByPlaytime = insert(sortedByPlaytime, newEntry, func(newEntry leaderBoardEntry, oldEntry leaderBoardEntry) bool {
+		return newEntry.Playtime > oldEntry.Playtime
 	})
 }
 
@@ -50,22 +65,30 @@ func GetLeaderBoard(c *gin.Context) {
 	leaderboardRWLock.RLock()
 	defer leaderboardRWLock.RUnlock()
 
-	c.JSON(http.StatusOK, gin.H{"leaderboard_kills": sortedKills, "leaderboard_deaths": sortedDeaths, "leaderboard_playtime": sortedPlaytime})
+	c.JSON(http.StatusOK, gin.H{
+		"kills":    sortedByKills,
+		"deaths":   sortedByDeaths,
+		"playtime": sortedByPlaytime,
+	})
 }
 
-func PostLeaderBoard(c *gin.Context) {
-	var entry leaderBoardEntry
-	if err := c.ShouldBindJSON(&entry); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+func PostLeaderBoard(context *gin.Context) {
+	var newEntry leaderBoardEntry
+	if err := context.ShouldBindJSON(&newEntry); err != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"error": http.StatusText(http.StatusBadRequest)})
 		return
 	}
 
 	leaderboardRWLock.Lock()
 	defer leaderboardRWLock.Unlock()
 
-	entriesMap[entry.UUID] = entry
+	var previousEntry *leaderBoardEntry
+	if existingEntry, exists := entries[newEntry.UUID]; exists {
+		existingEntryCopy := existingEntry
+		previousEntry = &existingEntryCopy
+	}
+	entries[newEntry.UUID] = newEntry
+	updateSorted(newEntry, previousEntry)
 
-	rebuildSortedSlices()
-
-	c.JSON(http.StatusOK, gin.H{"leaderboard_kills": sortedKills, "leaderboard_deaths": sortedDeaths, "leaderboard_playtime": sortedPlaytime})
+	context.JSON(http.StatusOK, gin.H{"kills": sortedByKills, "deaths": sortedByDeaths, "playtime": sortedByPlaytime})
 }

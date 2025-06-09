@@ -36,20 +36,13 @@ func PostOnlinePlayers(context *gin.Context) {
 	}
 
 	onlinePlayersRWLock.Lock()
-	onlinePlayersMap[player.UUID] = player
+	defer onlinePlayersRWLock.Unlock()
 
-	if onlinePlayersMap[player.UUID].Online {
-		onlinePlayersMap[player.UUID] = onlinePlayer{
-			UUID:   player.UUID,
-			Name:   player.Name,
-			Deaths: player.Deaths,
-			Kills:  player.Kills,
-			Online: true,
-		}
+	if player.Online {
+		onlinePlayersMap[player.UUID] = player
 	} else {
 		delete(onlinePlayersMap, player.UUID)
 	}
-	onlinePlayersRWLock.Unlock()
 
 	context.JSON(http.StatusCreated, gin.H{"online": len(onlinePlayersMap), "players": onlinePlayersMap})
 }

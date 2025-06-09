@@ -12,7 +12,6 @@ func setupRouter() *gin.Engine {
 	router := gin.Default()
 	router.Use(gin.Recovery())
 
-	// kinda goofy
 	router.GET("/status", api.OnlineStatus)
 	router.GET("/api/players/online", api.GetOnlinePlayers)
 	router.GET("/api/players/deaths", api.GetAllDeaths)
@@ -33,9 +32,10 @@ func setupRouter() *gin.Engine {
 }
 
 // Auth is the authorization token used for the API, for now
-const Auth = "$)(=?/V&%?/)(=$%<70ß)J(M$%ß)M=MV&%/?=;)($?)(W&%/ß98<%/BMß>U)(M%&98pujm5zwt8jE=%W)M=uztrdoihdoihg"
+const Auth = "eumeldashboard"
 
 func main() {
+	gin.SetMode(gin.ReleaseMode)
 
 	router := setupRouter()
 
