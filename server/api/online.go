@@ -1,7 +1,6 @@
 package api
 
 import (
-	"net/http"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -15,34 +14,48 @@ type onlinePlayer struct {
 	Online bool   `json:"online"`
 }
 
-var (
-	onlinePlayersMap    = make(map[string]onlinePlayer)
-	onlinePlayersRWLock = sync.RWMutex{}
-)
+type OnlinePlayers struct {
+	Players map[string]onlinePlayer
+	mu      sync.RWMutex
+}
 
-func GetOnlinePlayers(context *gin.Context) {
-	onlinePlayersRWLock.RLock()
-	defer onlinePlayersRWLock.RUnlock()
+var onlinePlayers = &OnlinePlayers{
+	Players: make(map[string]onlinePlayer),
+}
 
-	context.JSON(http.StatusOK, gin.H{"online": len(onlinePlayersMap), "players": onlinePlayersMap})
+func ReturnOnline() *OnlinePlayers {
+	return onlinePlayers
 }
 
 func PostOnlinePlayers(context *gin.Context) {
 	var player onlinePlayer
 
 	if err := context.ShouldBindJSON(&player); err != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"error": http.StatusText(http.StatusBadRequest)})
+		context.JSON(400, gin.H{"error": "invalid json format"})
 		return
 	}
 
-	onlinePlayersRWLock.Lock()
-	defer onlinePlayersRWLock.Unlock()
+	data := ReturnOnline()
+	data.mu.Lock()
+	defer data.mu.Unlock()
 
 	if player.Online {
-		onlinePlayersMap[player.UUID] = player
+		data.Players[player.UUID] = player
 	} else {
-		delete(onlinePlayersMap, player.UUID)
+		delete(data.Players, player.UUID)
 	}
 
-	context.JSON(http.StatusCreated, gin.H{"online": len(onlinePlayersMap), "players": onlinePlayersMap})
+	context.JSON(200, gin.H{
+		"online":  len(data.Players),
+		"players": data.Players,
+	})
 }
+
+/*
+func GetOnlinePlayers(context *gin.Context) {
+	onlinePlayersRWLock.RLock()
+	defer onlinePlayersRWLock.RUnlock()
+
+	context.JSON(http.StatusOK, gin.H{"online": len(onlinePlayersMap), "players": onlinePlayersMap})
+}
+*/

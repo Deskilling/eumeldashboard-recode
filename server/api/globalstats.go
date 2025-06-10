@@ -1,7 +1,6 @@
 package api
 
 import (
-	"net/http"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -13,31 +12,36 @@ type globalStats struct {
 	Playtime uint `json:"playtime"`
 }
 
-var (
-	allStats        globalStats
-	allStatsRWMLock = sync.RWMutex{}
-)
+type stats struct {
+	Data globalStats
+	mu   sync.RWMutex
+}
 
-func GetGlobalStats(context *gin.Context) {
-	allStatsRWMLock.RLock()
-	defer allStatsRWMLock.RUnlock()
-
-	context.JSON(http.StatusOK, gin.H{"globalstats": allStats})
+var Stats = &stats{
+	Data: globalStats{},
 }
 
 func PostGlobalStats(context *gin.Context) {
 	var stat globalStats
 
 	if err := context.ShouldBindJSON(&stat); err != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"error": http.StatusText(http.StatusBadRequest)})
+		context.JSON(400, gin.H{"error": "invalid json format"})
 		return
 	}
 
-	allStatsRWMLock.Lock()
+	Stats.mu.Lock()
+	defer Stats.mu.Unlock()
 
-	allStats = stat
+	Stats.Data = stat
 
-	allStatsRWMLock.Unlock()
-
-	context.JSON(http.StatusCreated, gin.H{"globalstats": stat})
+	context.JSON(200, gin.H{"globalstats": Stats.Data})
 }
+
+/*
+func GetGlobalStats(context *gin.Context) {
+	allStatsRWMLock.RLock()
+	defer allStatsRWMLock.RUnlock()
+
+	context.JSON(http.StatusOK, gin.H{"globalstats": allStats})
+}
+*/

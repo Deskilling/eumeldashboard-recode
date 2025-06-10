@@ -1,16 +1,13 @@
 package api
 
 import (
-	"net/http"
 	"sort"
 	"sync"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Hoffentlich hat der Aal gute Performance
-
-type leaderBoardEntry struct {
+type leaderboardEntry struct {
 	UUID     string `json:"uuid"`
 	Name     string `json:"name"`
 	Kills    uint   `json:"kills"`
@@ -18,15 +15,19 @@ type leaderBoardEntry struct {
 	Playtime uint   `json:"playtime"`
 }
 
-var (
-	leaderboardRWLock = sync.RWMutex{}
-	entries           = map[string]leaderBoardEntry{}
-	sortedByKills     []leaderBoardEntry
-	sortedByDeaths    []leaderBoardEntry
-	sortedByPlaytime  []leaderBoardEntry
-)
+type leaderboards struct {
+	Entries           map[string]leaderboardEntry
+	leaderboardRWLock sync.RWMutex
+	sortedByKills     []leaderboardEntry
+	sortedByDeaths    []leaderboardEntry
+	sortedByPlaytime  []leaderboardEntry
+}
 
-func remove(leaderboard []leaderBoardEntry, uuid string) []leaderBoardEntry {
+var Leaderboards = &leaderboards{
+	Entries: make(map[string]leaderboardEntry),
+}
+
+func remove(leaderboard []leaderboardEntry, uuid string) []leaderboardEntry {
 	for i, entry := range leaderboard {
 		if entry.UUID == uuid {
 			return append(leaderboard[:i], leaderboard[i+1:]...)
@@ -36,59 +37,65 @@ func remove(leaderboard []leaderBoardEntry, uuid string) []leaderBoardEntry {
 }
 
 // -- sort.Search -- Kuss für die gute Documentation
-func insert(sortedSlice []leaderBoardEntry, newEntry leaderBoardEntry, compare func(currenEntry leaderBoardEntry, oldEntry leaderBoardEntry) bool) []leaderBoardEntry {
+func insert(sortedSlice []leaderboardEntry, newEntry leaderboardEntry, compare func(currenEntry leaderboardEntry, oldEntry leaderboardEntry) bool) []leaderboardEntry {
 	i := sort.Search(len(sortedSlice), func(currentIndex int) bool { return !compare(sortedSlice[currentIndex], newEntry) })
-	return append(sortedSlice[:i], append([]leaderBoardEntry{newEntry}, sortedSlice[i:]...)...)
+	return append(sortedSlice[:i], append([]leaderboardEntry{newEntry}, sortedSlice[i:]...)...)
 }
 
-func updateSorted(newEntry leaderBoardEntry, oldEntry *leaderBoardEntry) {
+func updateSorted(newEntry leaderboardEntry, oldEntry *leaderboardEntry) {
 	if oldEntry != nil {
 		uuid := oldEntry.UUID
-		sortedByKills = remove(sortedByKills, uuid)
-		sortedByDeaths = remove(sortedByDeaths, uuid)
-		sortedByPlaytime = remove(sortedByPlaytime, uuid)
+		Leaderboards.sortedByKills = remove(Leaderboards.sortedByKills, uuid)
+		Leaderboards.sortedByDeaths = remove(Leaderboards.sortedByDeaths, uuid)
+		Leaderboards.sortedByPlaytime = remove(Leaderboards.sortedByPlaytime, uuid)
 	}
 
 	// -- Daumen
-	sortedByKills = insert(sortedByKills, newEntry, func(newEntry leaderBoardEntry, oldEntry leaderBoardEntry) bool {
+	Leaderboards.sortedByKills = insert(Leaderboards.sortedByKills, newEntry, func(newEntry leaderboardEntry, oldEntry leaderboardEntry) bool {
 		return newEntry.Kills > oldEntry.Kills
 	})
-	sortedByDeaths = insert(sortedByDeaths, newEntry, func(newEntry leaderBoardEntry, oldEntry leaderBoardEntry) bool {
+	Leaderboards.sortedByDeaths = insert(Leaderboards.sortedByDeaths, newEntry, func(newEntry leaderboardEntry, oldEntry leaderboardEntry) bool {
 		return newEntry.Deaths > oldEntry.Deaths
 	})
-	sortedByPlaytime = insert(sortedByPlaytime, newEntry, func(newEntry leaderBoardEntry, oldEntry leaderBoardEntry) bool {
+	Leaderboards.sortedByPlaytime = insert(Leaderboards.sortedByPlaytime, newEntry, func(newEntry leaderboardEntry, oldEntry leaderboardEntry) bool {
 		return newEntry.Playtime > oldEntry.Playtime
 	})
 }
 
-func GetLeaderBoard(c *gin.Context) {
+func PostLeaderboard(context *gin.Context) {
+	var newEntry leaderboardEntry
+	if err := context.ShouldBindJSON(&newEntry); err != nil {
+		context.JSON(400, gin.H{"error": "invalid json format"})
+		return
+	}
+
+	Leaderboards.leaderboardRWLock.Lock()
+	defer Leaderboards.leaderboardRWLock.Unlock()
+
+	var previousEntry *leaderboardEntry
+	if existingEntry, exists := Leaderboards.Entries[newEntry.UUID]; exists {
+		existingEntryCopy := existingEntry
+		previousEntry = &existingEntryCopy
+	}
+	Leaderboards.Entries[newEntry.UUID] = newEntry
+	updateSorted(newEntry, previousEntry)
+
+	context.JSON(200, gin.H{
+		"kills":    Leaderboards.sortedByKills,
+		"deaths":   Leaderboards.sortedByDeaths,
+		"playtime": Leaderboards.sortedByPlaytime,
+	})
+}
+
+/*
+func GetLeaderBoard(context *gin.Context) {
 	leaderboardRWLock.RLock()
 	defer leaderboardRWLock.RUnlock()
 
-	c.JSON(http.StatusOK, gin.H{
+	context.JSON(http.StatusOK, gin.H{
 		"kills":    sortedByKills,
 		"deaths":   sortedByDeaths,
 		"playtime": sortedByPlaytime,
 	})
 }
-
-func PostLeaderBoard(context *gin.Context) {
-	var newEntry leaderBoardEntry
-	if err := context.ShouldBindJSON(&newEntry); err != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"error": http.StatusText(http.StatusBadRequest)})
-		return
-	}
-
-	leaderboardRWLock.Lock()
-	defer leaderboardRWLock.Unlock()
-
-	var previousEntry *leaderBoardEntry
-	if existingEntry, exists := entries[newEntry.UUID]; exists {
-		existingEntryCopy := existingEntry
-		previousEntry = &existingEntryCopy
-	}
-	entries[newEntry.UUID] = newEntry
-	updateSorted(newEntry, previousEntry)
-
-	context.JSON(http.StatusOK, gin.H{"kills": sortedByKills, "deaths": sortedByDeaths, "playtime": sortedByPlaytime})
-}
+*/
